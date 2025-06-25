@@ -410,10 +410,14 @@ class FourChanSiteArchiver(BaseSiteArchiver):
         """Download the given item."""
         http_header = ('https://' if self.options.use_ssl else 'http://')
 
-        if item.dl_type == 'image':
-            self.download_item_image(item, http_header)
-        elif item.dl_type == 'thumb':
-            self.download_item_thumb(item, http_header)
-        elif item.dl_type == 'thread':
-            self.download_item_thread(item, http_header)
+        match item.dl_type:
+            case 'image':
+                self.download_item_image(item, http_header)
+            case 'thumb':
+                self.download_item_thumb(item, http_header)
+            case 'thread':
+                self.download_item_thread(item, http_header)
+            case _:
+                print(f"Unknown item type: {item.dl_type}")
+
         return
