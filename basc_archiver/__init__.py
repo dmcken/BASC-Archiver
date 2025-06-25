@@ -62,7 +62,7 @@ class Archiver:
             archiver.shutdown()
 
     # threads
-    def add_thread(self, url):
+    def add_thread(self, url: str):
         """Archive the given thread if possible"""
         url_archived = False
         for archiver in self.archivers:
