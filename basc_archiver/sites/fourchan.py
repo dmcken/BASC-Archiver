@@ -4,23 +4,30 @@
 from __future__ import print_function
 from __future__ import absolute_import
 
+# System imports
+import codecs
+import logging
+import os
+import re
+import threading
+
+# External import
+import basc_py4chan
+
+# Local imports
 from .base import BaseSiteArchiver
 from .. import utils
 
-import basc_py4chan
-
-import os
-import re
-import codecs
-import threading
+# Globals
+logger = logging.getLogger(__name__)
 
 THREAD_NONEXISTENT = 'Thread {site} / {board} / {thread_id} does not exist.'
 THREAD_NONEXISTENT_REASON = ("Either the thread already 404'ed, your URL is incorrect, "
                              "or you aren't connected to the internet.")
-IMAGE_DL = '{timestamp}   Image {site} / {board} / {thread_id} / {filename} downloaded'
-THUMB_DL = '{timestamp}   Thumbnail {site} / {board} / {thread_id} / {filename} downloaded'
-THREAD_404 = "{timestamp} Thread {site} / {board} / {thread_id} 404'd."
-THREAD_ARCHIVED = "{timestamp} Thread {site} / {board} / {thread_id} has been archived."
+IMAGE_DL           = '{timestamp}   Image {site} / {board} / {thread_id} / {filename} downloaded'
+THUMB_DL           = '{timestamp}   Thumbnail {site} / {board} / {thread_id} / {filename} downloaded'
+THREAD_404         = "{timestamp} Thread {site} / {board} / {thread_id} 404'd."
+THREAD_ARCHIVED    = "{timestamp} Thread {site} / {board} / {thread_id} has been archived."
 THREAD_NEW_REPLIES = '{timestamp} Thread {site} / {board} / {thread_id}  -  {replies} new replies'
 THREAD_CHILD_FOUND = '{timestamp} Child thread {site} / {board} / {thread_id} found and now being downloaded'
 
@@ -28,11 +35,11 @@ THREAD_CHILD_FOUND = '{timestamp} Child thread {site} / {board} / {thread_id} fo
 THREAD_REGEX = re.compile(r"""https?://(?:boards\.)?4chan(?:nel)?\.org/([0-9a-zA-Z]+)/(?:res|thread)/([0-9]+)""")
 
 # top level domains
-FOURCHAN_BOARDS = 'boards.4chan.org'
-FOURCHAN = '4chan.org'
-FOURCHANNEL = '4channel.org'
+FOURCHAN_BOARDS    = 'boards.4chan.org'
+FOURCHAN           = '4chan.org'
+FOURCHANNEL        = '4channel.org'
 FOURCHANNEL_BOARDS = 'boards.4channel.org'
-FOURCHAN_CDN = '4cdn.org'
+FOURCHAN_CDN       = '4cdn.org'
 
 # new urls
 #FOURCHAN_API = 'api.' + FOURCHAN # api.4chan.org also works, but 4cdn still on
@@ -41,14 +48,14 @@ FOURCHAN_CDN = '4cdn.org'
 #FOURCHAN_STATIC = 's.' + FOURCHAN_CDN # static.4chan.org also works, but not yet
 
 # cdn domains (no longer in use for images)
-FOURCHAN_API = 'a.' + FOURCHAN_CDN
+FOURCHAN_API    = 'a.' + FOURCHAN_CDN
 FOURCHAN_IMAGES = 'i.' + FOURCHAN_CDN
 FOURCHAN_THUMBS = 'i.' + FOURCHAN_CDN
 FOURCHAN_STATIC = 's.' + FOURCHAN_CDN
 
 # retrieval footer regex
 FOURCHAN_BOARDS_FOOTER = '/%s/thread/%s'
-FOURCHAN_API_FOOTER = FOURCHAN_BOARDS_FOOTER + '.json'
+FOURCHAN_API_FOOTER    = FOURCHAN_BOARDS_FOOTER + '.json'
 FOURCHAN_IMAGES_FOOTER = '/%s/%s'
 FOURCHAN_THUMBS_FOOTER = '/%s/%s'
 
@@ -73,11 +80,11 @@ FOURCHAN_CSS_URL_REGEX = re.compile(HTTP_HEADER_UNIV + FOURCHAN_STATIC + '/css/'
 FOURCHAN_JS_URL_REGEX = re.compile(HTTP_HEADER_UNIV + FOURCHAN_STATIC + '/js/')
 
 # default folder and file names
-_DEFAULT_FOLDER = '4chan'
-_IMAGE_DIR_NAME = 'images'
-_THUMB_DIR_NAME = 'thumbs'
-_CSS_DIR_NAME = 'css'
-_JS_DIR_NAME = 'js'
+_DEFAULT_FOLDER    = '4chan'
+_IMAGE_DIR_NAME    = 'images'
+_THUMB_DIR_NAME    = 'thumbs'
+_CSS_DIR_NAME      = 'css'
+_JS_DIR_NAME       = 'js'
 EXT_LINKS_FILENAME = 'external_links.txt'
 
 # The Ultimate URL Regex
