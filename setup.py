@@ -13,7 +13,7 @@ if sys.argv[-1] == 'publish':
     os.system('python setup.py sdist upload')
     sys.exit()
 
-with codecs.open('README.rst') as file:
+with codecs.open('README.md') as file:
     long_description = file.read()
     if not isinstance(long_description, str):
         long_description = str(long_description, 'utf-8')
