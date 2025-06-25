@@ -94,24 +94,24 @@ class FourChanSiteArchiver(BaseSiteArchiver):
         self.boards_lock = threading.Lock()
         self.boards = {}
 
-    def url_valid(self, url):
+    def url_valid(self, url: str):
         """Return true if the given URL is for my site."""
         return THREAD_REGEX.match(url)
 
-    def _url_info(self, url):
+    def _url_info(self, url: str):
         """INTERNAL: Takes a url, returns board name, thread info."""
         if self.url_valid(url):
             return THREAD_REGEX.findall(url)[0]
         else:
             return [None, None]
 
-    def add_thread(self, url):
+    def add_thread(self, url: str):
         """Add the given thread to our download list."""
         board_name, thread_id = self._url_info(url)
         thread_id = int(thread_id)
         return self._add_thread_from_info(board_name, thread_id)
 
-    def _add_thread_from_info(self, board_name, thread_id):
+    def _add_thread_from_info(self, board_name: str, thread_id):
         """Add a thread to our internal list from direct board name/thread id."""
         # already exists
         with self.threads_lock:
@@ -151,253 +151,269 @@ class FourChanSiteArchiver(BaseSiteArchiver):
         self.add_to_dl('thread', board=board_name, thread_id=thread_id)
         return True
 
+    def download_item_image(self, item, http_header):
+
+        if self.options.thumbs_only:
+            return True
+
+        board_name = item.info['board']
+        thread_id = item.info['thread_id']
+        images_dir = self.base_images_dir.format(board=board_name, thread=thread_id)
+        filename = item.info['filename']
+
+        file_url = http_header + FOURCHAN_IMAGES_URL % (board_name, filename)
+        file_path = os.path.join(images_dir, filename)
+
+        if not os.path.exists(file_path):
+            utils.mkdirs(images_dir)
+            if utils.download_file(file_path, file_url):
+                with self.threads_lock:
+                    self.threads[thread_id]['images_downloaded'] += 1
+                    status_info = self.threads[thread_id]
+                    status_info['filename'] = filename
+                self.update_status('image_dl', info=status_info)
+                if not self.options.silent:
+                    print(IMAGE_DL.format(**{
+                        'site': self.name,
+                        'board': board_name,
+                        'thread_id': thread_id,
+                        'filename': filename,
+                        'timestamp': utils.timestamp(),
+                    }))
+
+        return
+
+    def download_item_thumb(self, item, http_header):
+
+        if self.options.skip_thumbs:
+            return True
+
+        board_name = item.info['board']
+        thread_id = item.info['thread_id']
+        thumbs_dir = self.base_thumbs_dir.format(board=board_name, thread=thread_id)
+        filename = item.info['filename']
+
+        file_url = http_header + FOURCHAN_THUMBS_URL % (board_name, filename)
+        file_path = os.path.join(thumbs_dir, filename)
+
+        if not os.path.exists(file_path):
+            utils.mkdirs(thumbs_dir)
+            if utils.download_file(file_path, file_url):
+                with self.threads_lock:
+                    self.threads[thread_id]['thumbs_downloaded'] += 1
+                    status_info = self.threads[thread_id]
+                    status_info['filename'] = filename
+                self.update_status('thumb_dl', info=status_info)
+                if not self.options.silent:
+                    print(THUMB_DL.format(**{
+                        'site': self.name,
+                        'board': board_name,
+                        'thread_id': thread_id,
+                        'filename': filename,
+                        'timestamp': utils.timestamp(),
+                    }))
+
+        return
+
+    def download_item_thread(self, item, http_header):
+
+
+        board_name = item.info['board']
+        thread_id = item.info['thread_id']
+        thread_dir = self.base_thread_dir.format(board=board_name, thread=thread_id)
+
+        with self.threads_lock:
+            status_info = self.threads[thread_id]
+        self.update_status('thread_start_download', info=status_info)
+
+        thread = self.threads[thread_id]
+        with self.boards_lock:
+            # skip if no new posts
+            if 'thread' in thread:
+                new_replies = thread['thread'].update()
+                if thread['thread'].archived:
+                    # thread got archived
+                    print(THREAD_ARCHIVED.format(**{
+                        'site': self.name,
+                        'board': board_name,
+                        'thread_id': thread_id,
+                    }))
+                    with self.threads_lock:
+                        status_info = self.threads[thread_id]
+                    self.update_status('archived', info=status_info)
+                    self.threads[thread_id]['alive'] = False
+                    return True
+                elif new_replies < 1:
+                    # skip if no new posts
+                    item.delay_dl_timestamp()
+
+                    with self.threads_lock:
+                        status_info = self.threads[thread_id]
+                    status_info['next_dl'] = item.next_dl_timestamp
+                    self.update_status('thread_dl', info=status_info)
+
+                    self.add_to_dl(item=item)
+                    return True
+                elif thread['thread'].is_404:
+                    # thread 404'd
+                    print(THREAD_404.format(**{
+                        'site': self.name,
+                        'board': board_name,
+                        'thread_id': thread_id,
+                        'timestamp': utils.timestamp(),
+                    }))
+                    with self.threads_lock:
+                        status_info = self.threads[thread_id]
+                    self.update_status('404', info=status_info)
+                    self.threads[thread_id]['alive'] = False
+                    return True
+                else:
+                    with self.threads_lock:
+                        # TODO: extend BASC-py4chan to give us this number directly
+                        self.threads[thread_id]['total_files'] = len(list(thread['thread'].filenames()))
+            else:
+                running_board = self.boards[board_name]
+                running_thread = running_board.get_thread(thread_id)
+                self.threads[thread_id]['thread'] = running_thread
+                thread['thread'] = running_thread
+                new_replies = len(running_thread.all_posts)
+                with self.threads_lock:
+                    # TODO: extend BASC-py4chan to give us this number directly
+                    self.threads[thread_id]['total_files'] = len(list(running_thread.filenames()))
+                if thread['thread'].archived:
+                    # thread got archived
+                    print(THREAD_ARCHIVED.format(**{
+                        'site': self.name,
+                        'board': board_name,
+                        'thread_id': thread_id,
+                        'timestamp': utils.timestamp(),
+                    }))
+                    with self.threads_lock:
+                        status_info = self.threads[thread_id]
+                    self.update_status('archived', info=status_info)
+                    self.threads[thread_id]['alive'] = False
+
+        # thread
+        if not self.options.silent:
+            print(THREAD_NEW_REPLIES.format(**{
+                'site': self.name,
+                'board': board_name,
+                'thread_id': thread_id,
+                'replies': new_replies,
+                'timestamp': utils.timestamp(),
+            }))
+
+        utils.mkdirs(thread_dir)
+
+        # record external urls and follow child threads
+        external_urls_filename = os.path.join(thread_dir, EXT_LINKS_FILENAME)
+        with codecs.open(external_urls_filename, 'w', encoding='utf-8') as external_urls_file:
+            # all posts, including topic
+            all_posts = [thread['thread'].topic] + thread['thread'].posts
+            for reply in all_posts:
+                if reply.comment is None:
+                    continue
+
+                # 4chan puts <wbr> in middle of urls for word break, remove them
+                cleaned_comment = re.sub(r'\<wbr\>', '', reply.comment)
+
+                # child threads
+                if self.options.follow_child_threads:
+                    for child_board, child_id in CHILDREGEX.findall(cleaned_comment):
+                        is_same_board = child_board == board_name
+                        child_id = int(child_id)
+
+                        if child_id not in self.threads:
+                            if self.options.follow_to_other_boards or is_same_board:
+                                if self._add_thread_from_info(child_board, child_id):
+                                    print(THREAD_CHILD_FOUND.format(**{
+                                        'site': self.name,
+                                        'board': child_board,
+                                        'thread_id': child_id,
+                                        'timestamp': utils.timestamp(),
+                                    }))
+
+                # external urls
+                if not URLREGEX.findall(reply.comment):
+                    continue
+
+                for found in URLREGEX.findall(cleaned_comment):
+                    for url in found:
+                        if url:
+                            external_urls_file.write('{}\n'.format(url))
+
+        # dump 4chan json file, pretty printed
+        local_filename = os.path.join(thread_dir, '{}.json'.format(thread_id))
+        url = http_header + FOURCHAN_API_URL % (board_name, thread_id)
+        utils.download_json(local_filename, url, clobber=True)
+
+        # and output thread html file
+        local_filename = os.path.join(thread_dir, '{}.html'.format(thread_id))
+        url = http_header + FOURCHAN_BOARDS_URL % (board_name, thread_id)
+
+        if utils.download_file(local_filename, url, clobber=True):
+            # get css files
+            if not self.options.skip_css:
+                css_dir = os.path.join(thread_dir, _CSS_DIR_NAME)
+                utils.mkdirs(css_dir)
+
+                css_regex = re.compile(FOURCHAN_CSS_REGEX)
+                found_css_files = css_regex.findall(codecs.open(local_filename, encoding='utf-8').read())
+                for css_filename in found_css_files:
+                    local_css_filename = os.path.join(css_dir, css_filename)
+                    url = http_header + FOURCHAN_STATIC + '/css/' + css_filename
+                    utils.download_file(local_css_filename, url)
+
+            # get js files
+            if not self.options.skip_js:
+                js_dir = os.path.join(thread_dir, _JS_DIR_NAME)
+                utils.mkdirs(js_dir)
+
+                js_regex = re.compile(FOURCHAN_JS_REGEX)
+                found_js_files = js_regex.findall(codecs.open(local_filename, encoding='utf-8').read())
+                for js_filename in found_js_files:
+                    local_js_filename = os.path.join(js_dir, js_filename)
+                    url = http_header + FOURCHAN_STATIC + '/js/' + js_filename
+                    utils.download_file(local_js_filename, url)
+
+            # convert links to local links
+            utils.file_replace(local_filename, '"//', '"' + http_header)
+            utils.file_replace(local_filename, FOURCHAN_IMAGES_URL_REGEX, _IMAGE_DIR_NAME + r'/\1')
+            utils.file_replace(local_filename, FOURCHAN_THUMBS_URL_REGEX, _THUMB_DIR_NAME + r'/\1')
+            utils.file_replace(local_filename, FOURCHAN_CSS_URL_REGEX, _CSS_DIR_NAME + '/')
+            utils.file_replace(local_filename, FOURCHAN_JS_URL_REGEX, _JS_DIR_NAME + '/')
+
+        # add images to dl queue
+        for filename in thread['thread'].filenames():
+            self.add_to_dl(dl_type='image', board=board_name, thread_id=thread_id, filename=filename)
+
+        # add thumbs to dl queue
+        for filename in thread['thread'].thumbnames():
+            self.add_to_dl(dl_type='thumb', board=board_name, thread_id=thread_id, filename=filename)
+
+        # queue for next dl if thread is still alive
+        if thread['alive'] and not self.options.run_once:
+            item.delay_dl_timestamp(self.options.thread_check_delay)
+            self.add_to_dl(item=item)
+
+        with self.threads_lock:
+            if self.options.run_once:
+                self.threads[thread_id]['alive'] = False
+        status_info = self.threads[thread_id]
+        status_info['next_dl'] = None if self.options.run_once else item.next_dl_timestamp
+        self.update_status('thread_dl', info=status_info)
+
+        return
+
+
     def download_item(self, item):
         """Download the given item."""
         http_header = ('https://' if self.options.use_ssl else 'http://')
 
-        # images
         if item.dl_type == 'image':
-            if self.options.thumbs_only:
-                return True
-
-            board_name = item.info['board']
-            thread_id = item.info['thread_id']
-            images_dir = self.base_images_dir.format(board=board_name, thread=thread_id)
-            filename = item.info['filename']
-
-            file_url = http_header + FOURCHAN_IMAGES_URL % (board_name, filename)
-            file_path = os.path.join(images_dir, filename)
-
-            if not os.path.exists(file_path):
-                utils.mkdirs(images_dir)
-                if utils.download_file(file_path, file_url):
-                    with self.threads_lock:
-                        self.threads[thread_id]['images_downloaded'] += 1
-                        status_info = self.threads[thread_id]
-                        status_info['filename'] = filename
-                    self.update_status('image_dl', info=status_info)
-                    if not self.options.silent:
-                        print(IMAGE_DL.format(**{
-                            'site': self.name,
-                            'board': board_name,
-                            'thread_id': thread_id,
-                            'filename': filename,
-                            'timestamp': utils.timestamp(),
-                        }))
-
-        # thumbnails
+            self.download_item_image(item, http_header)
         elif item.dl_type == 'thumb':
-            if self.options.skip_thumbs:
-                return True
-
-            board_name = item.info['board']
-            thread_id = item.info['thread_id']
-            thumbs_dir = self.base_thumbs_dir.format(board=board_name, thread=thread_id)
-            filename = item.info['filename']
-
-            file_url = http_header + FOURCHAN_THUMBS_URL % (board_name, filename)
-            file_path = os.path.join(thumbs_dir, filename)
-
-            if not os.path.exists(file_path):
-                utils.mkdirs(thumbs_dir)
-                if utils.download_file(file_path, file_url):
-                    with self.threads_lock:
-                        self.threads[thread_id]['thumbs_downloaded'] += 1
-                        status_info = self.threads[thread_id]
-                        status_info['filename'] = filename
-                    self.update_status('thumb_dl', info=status_info)
-                    if not self.options.silent:
-                        print(THUMB_DL.format(**{
-                            'site': self.name,
-                            'board': board_name,
-                            'thread_id': thread_id,
-                            'filename': filename,
-                            'timestamp': utils.timestamp(),
-                        }))
-
-        # thread
+            self.download_item_thumb(item, http_header)
         elif item.dl_type == 'thread':
-            board_name = item.info['board']
-            thread_id = item.info['thread_id']
-            thread_dir = self.base_thread_dir.format(board=board_name, thread=thread_id)
-
-            with self.threads_lock:
-                status_info = self.threads[thread_id]
-            self.update_status('thread_start_download', info=status_info)
-
-            thread = self.threads[thread_id]
-            with self.boards_lock:
-                # skip if no new posts
-                if 'thread' in thread:
-                    new_replies = thread['thread'].update()
-                    if thread['thread'].archived:
-                        # thread got archived
-                        print(THREAD_ARCHIVED.format(**{
-                            'site': self.name,
-                            'board': board_name,
-                            'thread_id': thread_id,
-                        }))
-                        with self.threads_lock:
-                            status_info = self.threads[thread_id]
-                        self.update_status('archived', info=status_info)
-                        self.threads[thread_id]['alive'] = False
-                        return True
-                    elif new_replies < 1:
-                        # skip if no new posts
-                        item.delay_dl_timestamp()
-
-                        with self.threads_lock:
-                            status_info = self.threads[thread_id]
-                        status_info['next_dl'] = item.next_dl_timestamp
-                        self.update_status('thread_dl', info=status_info)
-
-                        self.add_to_dl(item=item)
-                        return True
-                    elif thread['thread'].is_404:
-                        # thread 404'd
-                        print(THREAD_404.format(**{
-                            'site': self.name,
-                            'board': board_name,
-                            'thread_id': thread_id,
-                            'timestamp': utils.timestamp(),
-                        }))
-                        with self.threads_lock:
-                            status_info = self.threads[thread_id]
-                        self.update_status('404', info=status_info)
-                        self.threads[thread_id]['alive'] = False
-                        return True
-                    else:
-                        with self.threads_lock:
-                            # TODO: extend BASC-py4chan to give us this number directly
-                            self.threads[thread_id]['total_files'] = len(list(thread['thread'].filenames()))
-                else:
-                    running_board = self.boards[board_name]
-                    running_thread = running_board.get_thread(thread_id)
-                    self.threads[thread_id]['thread'] = running_thread
-                    thread['thread'] = running_thread
-                    new_replies = len(running_thread.all_posts)
-                    with self.threads_lock:
-                        # TODO: extend BASC-py4chan to give us this number directly
-                        self.threads[thread_id]['total_files'] = len(list(running_thread.filenames()))
-                    if thread['thread'].archived:
-                        # thread got archived
-                        print(THREAD_ARCHIVED.format(**{
-                            'site': self.name,
-                            'board': board_name,
-                            'thread_id': thread_id,
-                            'timestamp': utils.timestamp(),
-                        }))
-                        with self.threads_lock:
-                            status_info = self.threads[thread_id]
-                        self.update_status('archived', info=status_info)
-                        self.threads[thread_id]['alive'] = False
-
-            # thread
-            if not self.options.silent:
-                print(THREAD_NEW_REPLIES.format(**{
-                    'site': self.name,
-                    'board': board_name,
-                    'thread_id': thread_id,
-                    'replies': new_replies,
-                    'timestamp': utils.timestamp(),
-                }))
-
-            utils.mkdirs(thread_dir)
-
-            # record external urls and follow child threads
-            external_urls_filename = os.path.join(thread_dir, EXT_LINKS_FILENAME)
-            with codecs.open(external_urls_filename, 'w', encoding='utf-8') as external_urls_file:
-                # all posts, including topic
-                all_posts = [thread['thread'].topic] + thread['thread'].posts
-                for reply in all_posts:
-                    if reply.comment is None:
-                        continue
-
-                    # 4chan puts <wbr> in middle of urls for word break, remove them
-                    cleaned_comment = re.sub(r'\<wbr\>', '', reply.comment)
-
-                    # child threads
-                    if self.options.follow_child_threads:
-                        for child_board, child_id in CHILDREGEX.findall(cleaned_comment):
-                            is_same_board = child_board == board_name
-                            child_id = int(child_id)
-
-                            if child_id not in self.threads:
-                                if self.options.follow_to_other_boards or is_same_board:
-                                    if self._add_thread_from_info(child_board, child_id):
-                                        print(THREAD_CHILD_FOUND.format(**{
-                                            'site': self.name,
-                                            'board': child_board,
-                                            'thread_id': child_id,
-                                            'timestamp': utils.timestamp(),
-                                        }))
-
-                    # external urls
-                    if not URLREGEX.findall(reply.comment):
-                        continue
-
-                    for found in URLREGEX.findall(cleaned_comment):
-                        for url in found:
-                            if url:
-                                external_urls_file.write('{}\n'.format(url))
-
-            # dump 4chan json file, pretty printed
-            local_filename = os.path.join(thread_dir, '{}.json'.format(thread_id))
-            url = http_header + FOURCHAN_API_URL % (board_name, thread_id)
-            utils.download_json(local_filename, url, clobber=True)
-
-            # and output thread html file
-            local_filename = os.path.join(thread_dir, '{}.html'.format(thread_id))
-            url = http_header + FOURCHAN_BOARDS_URL % (board_name, thread_id)
-
-            if utils.download_file(local_filename, url, clobber=True):
-                # get css files
-                if not self.options.skip_css:
-                    css_dir = os.path.join(thread_dir, _CSS_DIR_NAME)
-                    utils.mkdirs(css_dir)
-
-                    css_regex = re.compile(FOURCHAN_CSS_REGEX)
-                    found_css_files = css_regex.findall(codecs.open(local_filename, encoding='utf-8').read())
-                    for css_filename in found_css_files:
-                        local_css_filename = os.path.join(css_dir, css_filename)
-                        url = http_header + FOURCHAN_STATIC + '/css/' + css_filename
-                        utils.download_file(local_css_filename, url)
-
-                # get js files
-                if not self.options.skip_js:
-                    js_dir = os.path.join(thread_dir, _JS_DIR_NAME)
-                    utils.mkdirs(js_dir)
-
-                    js_regex = re.compile(FOURCHAN_JS_REGEX)
-                    found_js_files = js_regex.findall(codecs.open(local_filename, encoding='utf-8').read())
-                    for js_filename in found_js_files:
-                        local_js_filename = os.path.join(js_dir, js_filename)
-                        url = http_header + FOURCHAN_STATIC + '/js/' + js_filename
-                        utils.download_file(local_js_filename, url)
-
-                # convert links to local links
-                utils.file_replace(local_filename, '"//', '"' + http_header)
-                utils.file_replace(local_filename, FOURCHAN_IMAGES_URL_REGEX, _IMAGE_DIR_NAME + r'/\1')
-                utils.file_replace(local_filename, FOURCHAN_THUMBS_URL_REGEX, _THUMB_DIR_NAME + r'/\1')
-                utils.file_replace(local_filename, FOURCHAN_CSS_URL_REGEX, _CSS_DIR_NAME + '/')
-                utils.file_replace(local_filename, FOURCHAN_JS_URL_REGEX, _JS_DIR_NAME + '/')
-
-            # add images to dl queue
-            for filename in thread['thread'].filenames():
-                self.add_to_dl(dl_type='image', board=board_name, thread_id=thread_id, filename=filename)
-
-            # add thumbs to dl queue
-            for filename in thread['thread'].thumbnames():
-                self.add_to_dl(dl_type='thumb', board=board_name, thread_id=thread_id, filename=filename)
-
-            # queue for next dl if thread is still alive
-            if thread['alive'] and not self.options.run_once:
-                item.delay_dl_timestamp(self.options.thread_check_delay)
-                self.add_to_dl(item=item)
-
-            with self.threads_lock:
-                if self.options.run_once:
-                    self.threads[thread_id]['alive'] = False
-            status_info = self.threads[thread_id]
-            status_info['next_dl'] = None if self.options.run_once else item.next_dl_timestamp
-            self.update_status('thread_dl', info=status_info)
+            self.download_item_thread(item, http_header)
+        return
