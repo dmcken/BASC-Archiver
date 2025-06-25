@@ -21,19 +21,30 @@ with codecs.open('README.md') as file:
 
 setup(
     name='BASC-Archiver',
-    version='0.9.9',
+    version='0.9.10',
     description='Makes a complete archive of imageboard threads including images, HTML, and JSON.',
     long_description=long_description,
     author='Antonizoon Overtwater <antonizoon@bibanon.org>, Daniel Oaks <daniel@danieloaks.net>',
     author_email='antonizoon@bibanon.org',
-    url='https://github.com/bibanon/BASC-Archiver',
-    scripts=['thread-archiver', '4chan-thread-archiver', 'archive-nabber'],
-    packages=['basc_archiver', 'basc_archiver.sites'],
+    url='https://github.com/dmcken/BASC-Archiver',
+    scripts=[
+        'thread-archiver',
+        '4chan-thread-archiver',
+        'archive-nabber'
+    ],
+    packages=[
+        'basc_archiver',
+        'basc_archiver.sites'
+    ],
     package_dir={
         'basc_archiver': 'basc_archiver',
         'basc_archiver.sites': 'basc_archiver/sites',
     },
-    install_requires=['requests', 'docopt>=0.5.0', 'BASC-py4chan>=0.5.5'],
+    install_requires=[
+        'requests',
+        'docopt>=0.5.0',
+        'BASC-py4chan>=0.6.6'
+    ],
     keywords='4chan downloader images json dump',
     classifiers=[
         'Development Status :: 4 - Beta',
