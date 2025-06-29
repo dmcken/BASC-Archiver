@@ -84,3 +84,9 @@ License
 Bibliotheca Anonoma Imageboard Thread Archiver (BASC Archiver)
 
 Copyright (C) 2014 Antonizoon Overtwater, Daniel Oaks. Licensed under the GNU Lesser General Public License v3.
+
+Pending
+=======
+
+* Remove dependency on basc_py4chan / https://github.com/bibanon/BASC-py4chan which hasn't been updated in 3 years.
+* Better architech the code.
