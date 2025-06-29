@@ -229,6 +229,8 @@ class FourChanSiteArchiver(BaseSiteArchiver):
         thread_id = item.info['thread_id']
         thread_dir = self.base_thread_dir.format(board=board_name, thread=thread_id)
 
+        logger.debug(f"Board: {board_name} / Thread: {thread_id}")
+
         with self.threads_lock:
             status_info = self.threads[thread_id]
         self.update_status('thread_start_download', info=status_info)
@@ -281,6 +283,9 @@ class FourChanSiteArchiver(BaseSiteArchiver):
             else:
                 running_board = self.boards[board_name]
                 running_thread = running_board.get_thread(thread_id)
+                if running_thread is None:
+                    logger.debug(f"Running thread is None in download_item_thread")
+                    return None
                 self.threads[thread_id]['thread'] = running_thread
                 thread['thread'] = running_thread
                 new_replies = len(running_thread.all_posts)
